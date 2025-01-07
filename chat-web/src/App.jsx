@@ -220,7 +220,7 @@ function App() {
                     JSON.stringify({
                         type: "ice-candidate",
                         candidate: event.candidate,
-                        target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
+                        target: username, // Reemplaza con el nombre del destinatario.
                     })
                 );
             }
@@ -292,6 +292,14 @@ function App() {
                     Enviar
                 </button>
                 <button onClick={startCall}>Iniciar Chat de Voz</button>
+                <div
+                    id="ledChatOn"
+                    style={{
+                        backgroundColor: "red",
+                        height: "2%",
+                        width: "2%",
+                    }}
+                ></div>
             </section>
             <section id="playersSection">
                 <h2>Jugadores</h2>
