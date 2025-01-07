@@ -3,13 +3,13 @@ import { WebSocketServer } from "ws";
 const wss = new WebSocketServer({ port: 8082 });
 
 let players = [];
+let voiceSessionPlayers = []; // Array para los jugadores en la sesión de voz
 
 wss.on("connection", (ws) => {
     console.log("Cliente conectado");
 
     ws.on("message", (data) => {
         console.log(`Mensaje entrante: ${data}`);
-
         const parsedData = JSON.parse(data);
 
         // Manejar mensaje de chat
@@ -60,32 +60,47 @@ wss.on("connection", (ws) => {
         }
 
         // Manejo de la conexión de voz
-        if (parsedData.type === "offer" || parsedData.type === "answer") {
-            wss.clients.forEach((client) => {
-                if (
-                    client.readyState === ws.OPEN &&
-                    client.playerName === parsedData.target
-                ) {
-                    client.send(JSON.stringify(parsedData));
-                }
-            });
-
-            console.log(
-                `Mensaje ${parsedData.type} enviado a ${parsedData.target}`
-            );
+        if (
+            parsedData.type === "offer" ||
+            parsedData.type === "answer" ||
+            parsedData.type === "ice-candidate"
+        ) {
+            // Si el mensaje es de un participante que está en la sesión de voz, lo enviamos a todos
+            if (voiceSessionPlayers.includes(ws.playerName)) {
+                wss.clients.forEach((client) => {
+                    if (
+                        client.readyState === ws.OPEN &&
+                        voiceSessionPlayers.includes(client.playerName)
+                    ) {
+                        client.send(JSON.stringify(parsedData));
+                    }
+                });
+            }
         }
 
-        if (parsedData.type === "ice-candidate") {
+        // Si un jugador hace clic en "Iniciar Chat de Voz"
+        if (parsedData.type === "start-voice-chat") {
+            // Añadir al jugador a la sesión de voz
+            if (!voiceSessionPlayers.includes(ws.playerName)) {
+                voiceSessionPlayers.push(ws.playerName);
+            }
+
+            // Enviar a todos los participantes de la sesión la señal de inicio de chat de voz
+            const offerMessage = {
+                type: "offer",
+                username: ws.playerName,
+                target: voiceSessionPlayers,
+                sdp: parsedData.sdp, // La oferta inicial
+            };
+
             wss.clients.forEach((client) => {
                 if (
                     client.readyState === ws.OPEN &&
-                    client.playerName === parsedData.target
+                    voiceSessionPlayers.includes(client.playerName)
                 ) {
-                    client.send(JSON.stringify(parsedData));
+                    client.send(JSON.stringify(offerMessage));
                 }
             });
-
-            console.log(`Candidato ICE enviado a ${parsedData.target}`);
         }
     });
 
@@ -93,6 +108,11 @@ wss.on("connection", (ws) => {
     ws.on("close", () => {
         if (ws.playerName) {
             players = players.filter((player) => player !== ws.playerName);
+
+            // Si el jugador se desconecta de la sesión de voz, eliminarlo
+            voiceSessionPlayers = voiceSessionPlayers.filter(
+                (player) => player !== ws.playerName
+            );
 
             const playersData = {
                 type: "players",
