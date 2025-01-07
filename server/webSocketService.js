@@ -12,6 +12,7 @@ wss.on("connection", (ws) => {
 
         const parsedData = JSON.parse(data);
 
+        // Manejar mensaje de chat
         if (parsedData.type === "chat") {
             wss.clients.forEach((client) => {
                 if (client.readyState === ws.OPEN) {
@@ -21,6 +22,7 @@ wss.on("connection", (ws) => {
             });
         }
 
+        // Manejar unirse a la sala
         if (parsedData.type === "join") {
             ws.playerName = parsedData.playerName;
 
@@ -42,6 +44,7 @@ wss.on("connection", (ws) => {
             console.log(`${parsedData.playerName} se unió a la partida.`);
         }
 
+        // Manejo del movimiento de jugadores
         if (parsedData.type === "move") {
             const moveData = {
                 type: "move",
@@ -56,6 +59,7 @@ wss.on("connection", (ws) => {
             });
         }
 
+        // Manejo de la conexión de voz
         if (parsedData.type === "offer" || parsedData.type === "answer") {
             wss.clients.forEach((client) => {
                 if (
@@ -85,6 +89,7 @@ wss.on("connection", (ws) => {
         }
     });
 
+    // Manejo de desconexión
     ws.on("close", () => {
         if (ws.playerName) {
             players = players.filter((player) => player !== ws.playerName);
