@@ -2,25 +2,26 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 function App() {
-    const [messages, setMessages] = useState([]); // Chat
-    const [newMessage, setNewMessage] = useState(""); // Nuevo mensaje del chat
-    const [status, setStatus] = useState(""); // Estado de conexión
-    const [username, setUsername] = useState(""); // Nombre de usuario del chat
-    const [playerName, setPlayerName] = useState(""); // Nombre de jugador para el juego
-    const [players, setPlayers] = useState([]); // Jugadores en la partida
-    const [ws, setWs] = useState(null); // WebSocket
-    const [playerPositions, setPlayerPositions] = useState({}); // Posiciones de los jugadores
+    const [messages, setMessages] = useState([]);
+    const [newMessage, setNewMessage] = useState("");
+    const [status, setStatus] = useState("");
+    const [username, setUsername] = useState("");
+    const [playerName, setPlayerName] = useState("");
+    const [players, setPlayers] = useState([]);
+    const [ws, setWs] = useState(null);
+    const [playerPositions, setPlayerPositions] = useState({});
 
     useEffect(() => {
-        // Establecer la conexión WebSocket al cargar la app
-        const websocket = new WebSocket("ws://localhost:8082");
+        const websocket = new WebSocket(
+            "wss://c54d-95-18-11-25.ngrok-free.app"
+        );
 
         websocket.addEventListener("open", () => {
             setStatus("Usuario conectado");
         });
 
         websocket.addEventListener("message", (e) => {
-            const msgData = e.data; // El mensaje ya es texto, no es necesario usar await o text()
+            const msgData = e.data;
             const message = JSON.parse(msgData);
 
             console.log(`Mensaje recibido: ${message}`);
@@ -28,22 +29,18 @@ function App() {
             if (message.type === "chat") {
                 setMessages((prevMessages) => [...prevMessages, message]);
             } else if (message.type === "players") {
-                // Actualizar la lista de jugadores
                 setPlayers(message.players);
 
-                // Actualizar las posiciones de los jugadores sin sobrescribir las anteriores
                 setPlayerPositions((prevPositions) => {
-                    // Mantener las posiciones de los jugadores existentes
                     const updatedPositions = { ...prevPositions };
                     message.players.forEach((player) => {
                         if (!updatedPositions[player]) {
-                            updatedPositions[player] = { left: 0, top: 0 }; // Inicializamos al nuevo jugador en la posición (0, 0)
+                            updatedPositions[player] = { left: 0, top: 0 };
                         }
                     });
                     return updatedPositions;
                 });
             } else if (message.type === "move") {
-                // Actualizar la posición del jugador sin sobrescribir otros jugadores
                 setPlayerPositions((prevPositions) => ({
                     ...prevPositions,
                     [message.username]: message.coord,
@@ -58,7 +55,7 @@ function App() {
         setWs(websocket);
 
         return () => {
-            websocket.close(); // Cerrar WebSocket al desmontar el componente
+            websocket.close();
         };
     }, []);
 
@@ -114,11 +111,10 @@ function App() {
                 newTop += 2;
             }
 
-            // Asegurarse de que las posiciones no se salgan del rango
             if (newTop < 0) newTop = 0;
-            if (newTop > 86) newTop = 86; // Limitar al 91%
+            if (newTop > 86) newTop = 86;
             if (newLeft < 0) newLeft = 0;
-            if (newLeft > 91) newLeft = 91; // Limitar al 91%
+            if (newLeft > 91) newLeft = 91;
 
             setPlayerPositions((prevPositions) => ({
                 ...prevPositions,
@@ -132,11 +128,108 @@ function App() {
         }
     };
 
-    // Manejar eventos del teclado
+    const startAudioStream = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            });
+            console.log("Audio stream obtenido:", stream);
+            return stream;
+        } catch (error) {
+            console.error("Error al obtener el audio del micrófono:", error);
+            return null;
+        }
+    };
+
+    const [peerConnection, setPeerConnection] = useState(null);
+
+    const createPeerConnection = (stream) => {
+        const pc = new RTCPeerConnection();
+
+        // Agregar las pistas de audio al objeto RTCPeerConnection
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        // Manejar el evento cuando se recibe un stream remoto
+        pc.ontrack = (event) => {
+            const remoteStream = new MediaStream(event.streams[0].getTracks());
+            console.log("Stream remoto recibido:", remoteStream);
+
+            // Crear un elemento de audio y reproducir el stream remoto
+            const audioElement = new Audio();
+            audioElement.srcObject = remoteStream;
+            audioElement.play();
+        };
+
+        setPeerConnection(pc);
+        return pc;
+    };
+
+    const initPeerConnection = async () => {
+        const stream = await startAudioStream();
+        if (stream) {
+            createPeerConnection(stream);
+        }
+    };
+
+    useEffect(() => {
+        initPeerConnection();
+    }, []);
+
+    const startCall = async () => {
+        const stream = await startAudioStream();
+        if (!stream) return;
+
+        const pc = createPeerConnection(stream);
+
+        // Crear una oferta para iniciar la conexión
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Enviar la oferta al servidor
+        ws.send(
+            JSON.stringify({
+                type: "offer",
+                sdp: pc.localDescription,
+                target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
+            })
+        );
+
+        // Manejar las respuestas del servidor WebSocket
+        ws.addEventListener("message", async (e) => {
+            const message = JSON.parse(e.data);
+
+            if (message.type === "answer") {
+                // Configurar la descripción remota
+                const remoteDesc = new RTCSessionDescription(message.sdp);
+                await pc.setRemoteDescription(remoteDesc);
+            }
+
+            if (message.type === "ice-candidate") {
+                try {
+                    await pc.addIceCandidate(message.candidate);
+                } catch (e) {
+                    console.error("Error al agregar ICE Candidate:", e);
+                }
+            }
+        });
+
+        // Manejar candidatos ICE
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                ws.send(
+                    JSON.stringify({
+                        type: "ice-candidate",
+                        candidate: event.candidate,
+                        target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
+                    })
+                );
+            }
+        };
+    };
+
     useEffect(() => {
         const handleKeyDown = (event) => {
-            if (!playerName) return; // No mover si no hay jugador
-
+            if (!playerName) return;
             switch (event.key) {
                 case "a":
                 case "ArrowLeft":
@@ -198,6 +291,7 @@ function App() {
                 >
                     Enviar
                 </button>
+                <button onClick={startCall}>Iniciar Chat de Voz</button>
             </section>
             <section id="playersSection">
                 <h2>Jugadores</h2>
@@ -209,7 +303,7 @@ function App() {
                             style={{
                                 position: "absolute",
                                 left: `${playerPositions[player]?.left || 0}%`,
-                                top: `${playerPositions[player]?.top || 0}%`, // Usamos top para el movimiento vertical
+                                top: `${playerPositions[player]?.top || 0}%`,
                             }}
                         >
                             <p>{player}</p>

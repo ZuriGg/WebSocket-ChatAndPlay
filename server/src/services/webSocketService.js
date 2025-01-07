@@ -55,6 +55,34 @@ wss.on("connection", (ws) => {
                 }
             });
         }
+
+        if (parsedData.type === "offer" || parsedData.type === "answer") {
+            wss.clients.forEach((client) => {
+                if (
+                    client.readyState === ws.OPEN &&
+                    client.playerName === parsedData.target
+                ) {
+                    client.send(JSON.stringify(parsedData));
+                }
+            });
+
+            console.log(
+                `Mensaje ${parsedData.type} enviado a ${parsedData.target}`
+            );
+        }
+
+        if (parsedData.type === "ice-candidate") {
+            wss.clients.forEach((client) => {
+                if (
+                    client.readyState === ws.OPEN &&
+                    client.playerName === parsedData.target
+                ) {
+                    client.send(JSON.stringify(parsedData));
+                }
+            });
+
+            console.log(`Candidato ICE enviado a ${parsedData.target}`);
+        }
     });
 
     ws.on("close", () => {
