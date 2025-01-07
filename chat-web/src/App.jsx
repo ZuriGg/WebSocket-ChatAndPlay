@@ -10,7 +10,6 @@ function App() {
     const [players, setPlayers] = useState([]);
     const [ws, setWs] = useState(null);
     const [playerPositions, setPlayerPositions] = useState({});
-    const [peerConnection, setPeerConnection] = useState(null);
 
     useEffect(() => {
         const websocket = new WebSocket(
@@ -22,13 +21,16 @@ function App() {
         });
 
         websocket.addEventListener("message", (e) => {
-            const message = JSON.parse(e.data);
+            const msgData = e.data;
+            const message = JSON.parse(msgData);
+
             console.log(`Mensaje recibido: ${message}`);
 
             if (message.type === "chat") {
                 setMessages((prevMessages) => [...prevMessages, message]);
             } else if (message.type === "players") {
                 setPlayers(message.players);
+
                 setPlayerPositions((prevPositions) => {
                     const updatedPositions = { ...prevPositions };
                     message.players.forEach((player) => {
@@ -43,12 +45,6 @@ function App() {
                     ...prevPositions,
                     [message.username]: message.coord,
                 }));
-            } else if (
-                message.type === "offer" ||
-                message.type === "answer" ||
-                message.type === "ice-candidate"
-            ) {
-                handleSignal(message);
             }
         });
 
@@ -132,33 +128,12 @@ function App() {
         }
     };
 
-    // Función para controlar el movimiento con las teclas WASD
-    const handleKeyPress = (e) => {
-        if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") {
-            movePlayer("up");
-        } else if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") {
-            movePlayer("left");
-        } else if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") {
-            movePlayer("down");
-        } else if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
-            movePlayer("right");
-        }
-    };
-
-    // Escuchar las teclas presionadas al cargar el componente
-    useEffect(() => {
-        window.addEventListener("keydown", handleKeyPress);
-
-        return () => {
-            window.removeEventListener("keydown", handleKeyPress);
-        };
-    }, [playerPositions]);
-
     const startAudioStream = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
             });
+            console.log("Audio stream obtenido:", stream);
             return stream;
         } catch (error) {
             console.error("Error al obtener el audio del micrófono:", error);
@@ -166,12 +141,20 @@ function App() {
         }
     };
 
+    const [peerConnection, setPeerConnection] = useState(null);
+
     const createPeerConnection = (stream) => {
         const pc = new RTCPeerConnection();
+
+        // Agregar las pistas de audio al objeto RTCPeerConnection
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
+        // Manejar el evento cuando se recibe un stream remoto
         pc.ontrack = (event) => {
             const remoteStream = new MediaStream(event.streams[0].getTracks());
+            console.log("Stream remoto recibido:", remoteStream);
+
+            // Crear un elemento de audio y reproducir el stream remoto
             const audioElement = new Audio();
             audioElement.srcObject = remoteStream;
             audioElement.play();
@@ -188,93 +171,39 @@ function App() {
         }
     };
 
-    const startVoiceChat = async () => {
-        if (!playerName || !ws) return;
-
-        // Enviar al servidor la señal de que el jugador desea unirse al chat de voz
-        const message = {
-            type: "start-voice-chat",
-            playerName: playerName,
-            sdp: null, // Puedes agregar una oferta SDP si ya la tienes
-        };
-
-        ws.send(JSON.stringify(message));
-
-        // Inicializar Peer Connection y gestionar la señal de los otros jugadores
-        const stream = await startAudioStream();
-        if (!stream) return;
-
-        const pc = new RTCPeerConnection();
-        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-        pc.ontrack = (event) => {
-            const remoteStream = new MediaStream(event.streams[0].getTracks());
-            const audioElement = new Audio();
-            audioElement.srcObject = remoteStream;
-            audioElement.play();
-        };
-
-        setPeerConnection(pc);
-    };
-
-    const handleSignal = async (message) => {
-        if (!peerConnection) return;
-
-        if (message.type === "offer") {
-            await peerConnection.setRemoteDescription(
-                new RTCSessionDescription(message.sdp)
-            );
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-
-            ws.send(
-                JSON.stringify({
-                    type: "answer",
-                    sdp: peerConnection.localDescription,
-                    target: message.username,
-                })
-            );
-        } else if (message.type === "answer") {
-            await peerConnection.setRemoteDescription(
-                new RTCSessionDescription(message.sdp)
-            );
-        } else if (message.type === "ice-candidate") {
-            try {
-                await peerConnection.addIceCandidate(message.candidate);
-            } catch (e) {
-                console.error("Error al agregar ICE Candidate:", e);
-            }
-        }
-    };
+    useEffect(() => {
+        initPeerConnection();
+    }, []);
 
     const startCall = async () => {
-        if (!playerName || !ws) return;
-
-        // Inicializamos la conexión de peer
         const stream = await startAudioStream();
         if (!stream) return;
 
         const pc = createPeerConnection(stream);
 
-        // Creamos la oferta de conexión
+        // Crear una oferta para iniciar la conexión
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        // Enviamos la oferta con el nombre del jugador actual
+        // Enviar la oferta al servidor
         ws.send(
             JSON.stringify({
                 type: "offer",
                 sdp: pc.localDescription,
-                target: playerName, // Aquí usamos el nombre del jugador ingresado
+                target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
             })
         );
 
+        // Manejar las respuestas del servidor WebSocket
         ws.addEventListener("message", async (e) => {
             const message = JSON.parse(e.data);
+
             if (message.type === "answer") {
+                // Configurar la descripción remota
                 const remoteDesc = new RTCSessionDescription(message.sdp);
                 await pc.setRemoteDescription(remoteDesc);
             }
+
             if (message.type === "ice-candidate") {
                 try {
                     await pc.addIceCandidate(message.candidate);
@@ -284,14 +213,14 @@ function App() {
             }
         });
 
-        // Manejo de ICE candidates
+        // Manejar candidatos ICE
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 ws.send(
                     JSON.stringify({
                         type: "ice-candidate",
                         candidate: event.candidate,
-                        target: playerName, // Aquí usamos el nombre del jugador ingresado
+                        target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
                     })
                 );
             }
@@ -299,8 +228,36 @@ function App() {
     };
 
     useEffect(() => {
-        initPeerConnection();
-    }, []);
+        const handleKeyDown = (event) => {
+            if (!playerName) return;
+            switch (event.key) {
+                case "a":
+                case "ArrowLeft":
+                    movePlayer("left");
+                    break;
+                case "d":
+                case "ArrowRight":
+                    movePlayer("right");
+                    break;
+                case "w":
+                case "ArrowUp":
+                    movePlayer("up");
+                    break;
+                case "s":
+                case "ArrowDown":
+                    movePlayer("down");
+                    break;
+                default:
+                    break;
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [playerName, playerPositions]);
 
     return (
         <div className="App">
@@ -336,8 +293,6 @@ function App() {
                 </button>
                 <button onClick={startCall}>Iniciar Chat de Voz</button>
             </section>
-
-            {/* Sección de jugadores */}
             <section id="playersSection">
                 <h2>Jugadores</h2>
                 <ul>
