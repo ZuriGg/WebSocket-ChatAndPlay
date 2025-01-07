@@ -248,19 +248,24 @@ function App() {
     };
 
     const startCall = async () => {
+        if (!playerName || !ws) return;
+
+        // Inicializamos la conexión de peer
         const stream = await startAudioStream();
         if (!stream) return;
 
         const pc = createPeerConnection(stream);
 
+        // Creamos la oferta de conexión
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
+        // Enviamos la oferta con el nombre del jugador actual
         ws.send(
             JSON.stringify({
                 type: "offer",
                 sdp: pc.localDescription,
-                target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
+                target: playerName, // Aquí usamos el nombre del jugador ingresado
             })
         );
 
@@ -279,13 +284,14 @@ function App() {
             }
         });
 
+        // Manejo de ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 ws.send(
                     JSON.stringify({
                         type: "ice-candidate",
                         candidate: event.candidate,
-                        target: "<target_player_name>", // Reemplaza con el nombre del destinatario.
+                        target: playerName, // Aquí usamos el nombre del jugador ingresado
                     })
                 );
             }
