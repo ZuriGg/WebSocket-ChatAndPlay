@@ -10,6 +10,73 @@ function App() {
     const [players, setPlayers] = useState([]);
     const [ws, setWs] = useState(null);
     const [playerPositions, setPlayerPositions] = useState({});
+    const [isVoiceDetected, setIsVoiceDetected] = useState(false); // Estado para detectar voz
+
+    // Función para capturar el audio del micrófono y analizarlo
+    const startAudioStream = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            });
+            console.log("Audio stream obtenido:", stream);
+
+            // Crear un AudioContext para procesar el audio
+            const audioContext = new (window.AudioContext ||
+                window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(stream);
+            microphone.connect(analyser);
+
+            // Configurar el AnalyserNode
+            analyser.fftSize = 256;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            // Detectar si hay sonido
+            const detectVoice = () => {
+                analyser.getByteFrequencyData(dataArray);
+
+                // Sumamos todos los valores de frecuencias para determinar si hay actividad de voz
+                const sum = dataArray.reduce((a, b) => a + b, 0);
+                const average = sum / bufferLength;
+
+                // Si el valor promedio es mayor que un umbral, consideramos que hay voz
+                if (average > 10) {
+                    setIsVoiceDetected(true); // Hay voz
+                } else {
+                    setIsVoiceDetected(false); // No hay voz
+                }
+
+                requestAnimationFrame(detectVoice);
+            };
+
+            detectVoice(); // Iniciar la detección de voz
+
+            return stream;
+        } catch (error) {
+            console.error("Error al obtener el audio del micrófono:", error);
+            return null;
+        }
+    };
+
+    useEffect(() => {
+        startAudioStream(); // Iniciar la captura de audio
+
+        // WebSocket y otros hooks...
+    }, []);
+
+    // Colocar el color del LED en función de la detección de voz
+    useEffect(() => {
+        const ledElement = document.getElementById("ledChatOn");
+
+        if (ledElement) {
+            if (isVoiceDetected) {
+                ledElement.style.backgroundColor = "green"; // Si hay voz, poner verde
+            } else {
+                ledElement.style.backgroundColor = "red"; // Si no hay voz, poner rojo
+            }
+        }
+    }, [isVoiceDetected]); // Se ejecuta cada vez que `isVoiceDetected` cambie
 
     useEffect(() => {
         const websocket = new WebSocket(
@@ -125,19 +192,6 @@ function App() {
                 username: playerName,
                 coord: { left: newLeft, top: newTop },
             });
-        }
-    };
-
-    const startAudioStream = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-            });
-            console.log("Audio stream obtenido:", stream);
-            return stream;
-        } catch (error) {
-            console.error("Error al obtener el audio del micrófono:", error);
-            return null;
         }
     };
 
