@@ -12,6 +12,8 @@ function App() {
     const [playerPositions, setPlayerPositions] = useState({});
     const [isVoiceDetected, setIsVoiceDetected] = useState(false); // Estado para detectar voz
 
+    const connection = import.meta.env.VITE_NUMERO_NGROK;
+
     // Función para capturar el audio del micrófono y analizarlo
     const startAudioStream = async () => {
         try {
@@ -80,7 +82,7 @@ function App() {
 
     useEffect(() => {
         const websocket = new WebSocket(
-            "wss://6a04-95-18-11-25.ngrok-free.app"
+            `wss://${connection}-95-18-11-25.ngrok-free.app`
         );
 
         websocket.addEventListener("open", () => {
@@ -124,7 +126,7 @@ function App() {
         return () => {
             websocket.close();
         };
-    }, []);
+    }, [connection]);
 
     const sendMessage = (message) => {
         if (message && username && ws) {
