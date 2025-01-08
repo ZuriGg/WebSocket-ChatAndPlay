@@ -126,7 +126,7 @@ function App() {
         return () => {
             websocket.close();
         };
-    }, [connection]);
+    }, []);
 
     const sendMessage = (message) => {
         if (message && username && ws) {
